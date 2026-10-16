@@ -18,28 +18,33 @@ def cv_report(model, train):
     return report(train[TARGET], pred)
 
 
-def tune_boosting(train, valid):
-    best_params, best_metrics = None, None
-    for learning_rate in (0.03, 0.1, 0.3):
-        for max_depth in (3, 5, None):
-            model = HistGradientBoostingRegressor(
-                learning_rate=learning_rate, max_depth=max_depth, random_state=SEED
-            ).fit(train[FEATURES], train[TARGET])
-            metrics = report(valid[TARGET], model.predict(valid[FEATURES]))
-            if best_metrics is None or metrics["mae"] < best_metrics["mae"]:
-                best_params, best_metrics = (learning_rate, max_depth), metrics
-    return best_params, best_metrics
+def boosting(learning_rate, max_depth):
+    return HistGradientBoostingRegressor(learning_rate=learning_rate, max_depth=max_depth, random_state=SEED)
+
+
+def tune_boosting(train):
+    results = {
+        (lr, depth): cv_report(boosting(lr, depth), train)
+        for lr in (0.03, 0.1, 0.3)
+        for depth in (3, 5, None)
+    }
+    best = min(results, key=lambda params: results[params]["mae"])
+    return best, results[best]
 
 
 def main():
     df = load_dataset()
-    train, valid = scaffold_split(df)
+    train, holdout = scaffold_split(df)
 
     ridge = make_pipeline(StandardScaler(), Ridge(alpha=1.0))
     print(format_report("Ridge CV", cv_report(ridge, train)))
 
-    params, metrics = tune_boosting(train, valid)
-    print(format_report(f"Boosting {params}", metrics))
+    params, metrics = tune_boosting(train)
+    print(format_report(f"Boosting {params} CV", metrics))
+
+    # The holdout is used once, for the chosen model only.
+    final = boosting(*params).fit(train[FEATURES], train[TARGET])
+    print(format_report("Boosting holdout", report(holdout[TARGET], final.predict(holdout[FEATURES]))))
 
 
 if __name__ == "__main__":
